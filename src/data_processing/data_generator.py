@@ -488,3 +488,112 @@ class UserDataGenerator:
             all_data.extend(user_data)
         
         return all_data
+    
+    def test_behavior_features(self, num_users: int = 5, duration_hours: int = 1) -> Dict[str, Any]:
+        """测试新增的用户行为特征功能"""
+        print("\n📦 测试新增的用户行为特征...")
+        
+        # 生成测试数据
+        test_data = self.generate_dataset(num_users, duration_hours, 300)  # 5分钟间隔
+        
+        # 统计新增行为特征的使用情况
+        behavior_stats = {}
+        for behavior_name in self.behavior_types.keys():
+            behavior_stats[behavior_name] = []
+        
+        # 收集所有数据点的行为特征
+        for data_point in test_data:
+            behavior_features = data_point.behavior_features
+            for behavior_name in self.behavior_types.keys():
+                if behavior_name in behavior_features:
+                    behavior_stats[behavior_name].append(behavior_features[behavior_name])
+        
+        # 计算统计信息
+        test_results = {
+            'total_data_points': len(test_data),
+            'unique_users': len(set(d.user_id for d in test_data)),
+            'behavior_statistics': {},
+            'slice_type_distribution': {},
+            'network_impact_analysis': {}
+        }
+        
+        print(f"   ✅ 生成测试数据: {len(test_data)} 个数据点")
+        print(f"   👥 涉及用户: {len(set(d.user_id for d in test_data))} 个")
+        print("\n   🎯 新增行为特征统计:")
+        
+        for behavior_name, values in behavior_stats.items():
+            if values:  # 只处理有数据的行为
+                behavior_info = self.behavior_types[behavior_name]
+                avg_usage = np.mean(values)
+                max_usage = np.max(values)
+                usage_rate = sum(1 for v in values if v > 0.1) / len(values)  # 活跃率
+                
+                test_results['behavior_statistics'][behavior_name] = {
+                    'average_usage': avg_usage,
+                    'max_usage': max_usage,
+                    'usage_rate': usage_rate,
+                    'total_samples': len(values),
+                    'bandwidth_req': behavior_info['bandwidth_req'],
+                    'latency_req': behavior_info['latency_req'],
+                    'slice_preference': behavior_info['slice_preference']
+                }
+                
+                print(f"     • {behavior_name}:")
+                print(f"       - 平均使用率: {avg_usage:.3f}")
+                print(f"       - 最大使用率: {max_usage:.3f}")
+                print(f"       - 活跃用户比例: {usage_rate*100:.1f}%")
+                print(f"       - 带宽需求: {behavior_info['bandwidth_req']}, 延迟需求: {behavior_info['latency_req']}")
+        
+        # 分析网络切片分布
+        slice_distribution = {}
+        for data_point in test_data:
+            slice_type = data_point.slice_type
+            if slice_type not in slice_distribution:
+                slice_distribution[slice_type] = 0
+            slice_distribution[slice_type] += 1
+        
+        print("\n   🔌 网络切片分布:")
+        for slice_type, count in slice_distribution.items():
+            percentage = (count / len(test_data)) * 100
+            test_results['slice_type_distribution'][slice_type] = {
+                'count': count,
+                'percentage': percentage
+            }
+            print(f"     • {slice_type}: {count} 个 ({percentage:.1f}%)")
+        
+        # 分析网络指标影响
+        print("\n   📊 网络指标影响分析:")
+        
+        # 按行为类型分组分析网络指标
+        behavior_network_impact = {}
+        
+        for behavior_name in self.behavior_types.keys():
+            # 找到使用该行为的数据点
+            relevant_data = []
+            for data_point in test_data:
+                if data_point.behavior_features.get(behavior_name, 0) > 0.5:
+                    relevant_data.append(data_point)
+            
+            if relevant_data:
+                # 计算平均网络指标
+                avg_latency = np.mean([d.network_metrics['latency'] for d in relevant_data])
+                avg_throughput = np.mean([d.network_metrics['throughput'] for d in relevant_data])
+                avg_signal = np.mean([d.network_metrics['signal_strength'] for d in relevant_data])
+                
+                behavior_network_impact[behavior_name] = {
+                    'sample_count': len(relevant_data),
+                    'avg_latency': avg_latency,
+                    'avg_throughput': avg_throughput,
+                    'avg_signal_strength': avg_signal
+                }
+                
+                print(f"     • {behavior_name} (样本数: {len(relevant_data)}):")
+                print(f"       - 平均延迟: {avg_latency:.2f} ms")
+                print(f"       - 平均吐量: {avg_throughput:.2f} Mbps")
+                print(f"       - 平均信号强度: {avg_signal:.3f}")
+        
+        test_results['network_impact_analysis'] = behavior_network_impact
+        
+        print("\n   ✅ 用户行为特征测试完成！")
+        
+        return test_results
