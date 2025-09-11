@@ -1,0 +1,97 @@
+# 5G动态网络切片优化项目配置
+project:
+  name: "5G Dynamic Network Slicing Optimization"
+  version: "1.0.0"
+  description: "基于Transformer架构的5G动态网络切片实时优化系统"
+
+# 模型配置
+model:
+  transformer:
+    d_model: 512          # 模型维度
+    nhead: 8              # 注意力头数
+    num_layers: 6         # Transformer层数
+    dropout: 0.1          # Dropout率
+    max_seq_length: 100   # 最大序列长度
+    
+  training:
+    batch_size: 32
+    learning_rate: 0.0001
+    epochs: 100
+    early_stopping_patience: 10
+    validation_split: 0.2
+    
+# 数据配置
+data:
+  features:
+    trajectory_dim: 3     # 轨迹维度 (x, y, z)
+    velocity_dim: 3       # 速度维度 (vx, vy, vz)
+    behavior_dim: 10      # 用户行为特征维度
+    
+  sampling:
+    frequency: 1.0        # 采样频率 (Hz)
+    window_size: 60       # 时间窗口大小 (秒)
+    prediction_horizon: 30 # 预测时间范围 (秒)
+    
+  preprocessing:
+    normalize: true
+    remove_outliers: true
+    fill_missing: "interpolation"
+
+# 网络切片配置
+network_slicing:
+  slice_types:
+    - name: "eMBB"        # 增强型移动宽带
+      priority: 1
+      min_bandwidth: 10   # Mbps
+      max_bandwidth: 1000 # Mbps
+      latency_requirement: 20  # ms
+      
+    - name: "URLLC"       # 超可靠低时延通信
+      priority: 3
+      min_bandwidth: 1    # Mbps
+      max_bandwidth: 50   # Mbps
+      latency_requirement: 1   # ms
+      
+    - name: "mMTC"        # 大规模机器类型通信
+      priority: 2
+      min_bandwidth: 0.1  # Mbps
+      max_bandwidth: 10   # Mbps
+      latency_requirement: 100 # ms
+      
+  optimization:
+    algorithm: "reinforcement_learning"
+    reward_weights:
+      bandwidth_utilization: 0.4
+      latency_satisfaction: 0.3
+      energy_efficiency: 0.2
+      user_satisfaction: 0.1
+
+# 实时预测配置
+prediction:
+  update_interval: 1.0    # 预测更新间隔 (秒)
+  confidence_threshold: 0.8
+  max_prediction_time: 300 # 最大预测时间 (秒)
+  
+# 可视化配置
+visualization:
+  dashboard:
+    refresh_rate: 2.0     # 刷新率 (秒)
+    max_history_points: 1000
+    
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/5g_slicing.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# 数据库配置
+database:
+  type: "sqlite"
+  path: "data/5g_slicing.db"
+  
+# API配置
+api:
+  host: "localhost"
+  port: 8000
+  cors_origins: ["http://localhost:3000", "http://localhost:8501"]
