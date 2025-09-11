@@ -41,6 +41,18 @@ class UserDataGenerator:
         # 应用类型和使用模式
         self.app_types = ['social', 'video', 'game', 'work', 'navigation']
         
+        # 新增用户行为类型
+        self.behavior_types = {
+            'vr_ar_gaming': {'bandwidth_req': 'high', 'latency_req': 'ultra_low', 'slice_preference': 'URLLC'},
+            'fps_gaming': {'bandwidth_req': 'medium', 'latency_req': 'ultra_low', 'slice_preference': 'URLLC'},
+            'video_streaming': {'bandwidth_req': 'high', 'latency_req': 'low', 'slice_preference': 'eMBB'},
+            'live_streaming': {'bandwidth_req': 'very_high', 'latency_req': 'low', 'slice_preference': 'eMBB'},
+            'video_calling': {'bandwidth_req': 'medium', 'latency_req': 'low', 'slice_preference': 'eMBB'},
+            'file_download': {'bandwidth_req': 'very_high', 'latency_req': 'medium', 'slice_preference': 'eMBB'},
+            'iot_sensor': {'bandwidth_req': 'very_low', 'latency_req': 'medium', 'slice_preference': 'mMTC'},
+            'web_browsing': {'bandwidth_req': 'low', 'latency_req': 'medium', 'slice_preference': 'eMBB'}
+        }
+        
     def generate_user_profiles(self, num_users: int) -> List[UserProfile]:
         """生成用户画像"""
         profiles = []
@@ -97,7 +109,7 @@ class UserDataGenerator:
                 
                 velocity = (0, 0, 0)
                 behavior = self._generate_behavior_features(profile, timestamp)
-                network = self._generate_network_metrics(profile, position)
+                network = self._generate_network_metrics(profile, position, behavior)
                 
                 data_points.append(UserData(
                     user_id=profile.user_id,
@@ -126,7 +138,7 @@ class UserDataGenerator:
                 position, velocity = self._generate_movement(i, target_pos, sampling_interval)
                 
                 behavior = self._generate_behavior_features(profile, timestamp)
-                network = self._generate_network_metrics(profile, position)
+                network = self._generate_network_metrics(profile, position, behavior)
                 
                 data_points.append(UserData(
                     user_id=profile.user_id,
@@ -162,7 +174,7 @@ class UserDataGenerator:
                 )
                 
                 behavior = self._generate_behavior_features(profile, timestamp)
-                network = self._generate_network_metrics(profile, new_pos)
+                network = self._generate_network_metrics(profile, new_pos, behavior)
                 
                 data_points.append(UserData(
                     user_id=profile.user_id,
@@ -235,17 +247,35 @@ class UserDataGenerator:
             
             app_usage[f'app_{app}'] = min(usage, 1.0)
         
+        # 新增用户行为特征生成
+        behavior_usage = self._generate_user_behaviors(profile, hour)
+        
         # 通话和数据使用
         call_prob = 0.3 * profile.activity_level
         call_duration = np.random.exponential(120) if np.random.random() < call_prob else 0
         
-        data_usage = np.random.lognormal(
+        # 根据行为类型调整数据使用量
+        base_data_usage = np.random.lognormal(
             mean=2.0 + profile.activity_level,
             sigma=1.0
         ) * (1.5 if 18 <= hour <= 22 else 1.0)
         
+        # 根据高带宽行为调整数据使用量
+        data_multiplier = 1.0
+        if behavior_usage.get('vr_ar_gaming', 0) > 0.5:
+            data_multiplier *= 3.0
+        if behavior_usage.get('live_streaming', 0) > 0.5:
+            data_multiplier *= 5.0
+        if behavior_usage.get('video_streaming', 0) > 0.5:
+            data_multiplier *= 2.0
+        if behavior_usage.get('file_download', 0) > 0.5:
+            data_multiplier *= 4.0
+            
+        data_usage = base_data_usage * data_multiplier
+        
         behavior = {
             **app_usage,
+            **behavior_usage,
             'call_duration': call_duration,
             'data_usage': data_usage,
             'location_type': self._get_location_type(timestamp),
@@ -254,8 +284,89 @@ class UserDataGenerator:
         
         return behavior
     
+    def _generate_user_behaviors(self, profile: UserProfile, hour: int) -> Dict[str, float]:
+        """生成用户行为特征"""
+        behaviors = {}
+        
+        # 根据用户类型和时间生成不同行为的使用概率
+        for behavior_name, behavior_info in self.behavior_types.items():
+            base_prob = self._get_behavior_probability(behavior_name, profile, hour)
+            
+            # 添加随机性
+            actual_usage = base_prob * np.random.uniform(0.5, 1.5) * profile.activity_level
+            
+            # 添加时间相关性（某些行为在特定时间更常见）
+            if behavior_name in ['video_streaming', 'live_streaming']:
+                if 19 <= hour <= 23:  # 晚上高峰期
+                    actual_usage *= 2.0
+                elif 12 <= hour <= 14:  # 午休时间
+                    actual_usage *= 1.5
+            
+            elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
+                if 18 <= hour <= 24 or 0 <= hour <= 2:  # 晚上和深夜游戏时间
+                    actual_usage *= 2.0
+                elif 9 <= hour <= 17:  # 工作时间减少
+                    actual_usage *= 0.3
+            
+            elif behavior_name == 'video_calling':
+                if 9 <= hour <= 11 or 14 <= hour <= 16:  # 会议时间
+                    actual_usage *= 1.8
+            
+            elif behavior_name == 'file_download':
+                if 8 <= hour <= 10 or 13 <= hour <= 15:  # 工作时间
+                    actual_usage *= 1.5
+            
+            elif behavior_name == 'iot_sensor':
+                # IoT设备通常持续工作，但数据量小
+                actual_usage = 0.8 + np.random.normal(0, 0.1)
+            
+            behaviors[behavior_name] = np.clip(actual_usage, 0.0, 1.0)
+        
+        return behaviors
+    
+    def _get_behavior_probability(self, behavior_name: str, profile: UserProfile, hour: int) -> float:
+        """获取特定行为的基本使用概率"""
+        behavior_info = self.behavior_types[behavior_name]
+        
+        # 根据用户类型调整基础概率
+        if profile.user_type == 'business':
+            if behavior_name in ['video_calling', 'file_download', 'web_browsing']:
+                base_prob = 0.7
+            elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
+                base_prob = 0.1
+            elif behavior_name in ['video_streaming', 'live_streaming']:
+                base_prob = 0.3
+            else:
+                base_prob = 0.2
+        
+        elif profile.user_type == 'personal':
+            if behavior_name in ['video_streaming', 'live_streaming']:
+                base_prob = 0.8
+            elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
+                base_prob = 0.4
+            elif behavior_name in ['video_calling', 'web_browsing']:
+                base_prob = 0.6
+            elif behavior_name == 'file_download':
+                base_prob = 0.3
+            else:
+                base_prob = 0.1
+        
+        else:  # iot
+            if behavior_name == 'iot_sensor':
+                base_prob = 0.9
+            else:
+                base_prob = 0.05
+        
+        # 根据切片偏好调整
+        preferred_slice = behavior_info['slice_preference']
+        if profile.preferred_slice == preferred_slice:
+            base_prob *= 1.5
+        
+        return min(base_prob, 1.0)
+    
     def _generate_network_metrics(self, profile: UserProfile, 
-                                position: Tuple[float, float, float]) -> Dict[str, float]:
+                                position: Tuple[float, float, float],
+                                behavior_features: Dict[str, float] = None) -> Dict[str, float]:
         """生成网络性能指标"""
         # 基于位置和用户类型生成网络指标
         distance_from_center = np.sqrt(position[0]**2 + position[1]**2)
@@ -267,6 +378,34 @@ class UserDataGenerator:
         
         # 延迟（距离越远越高）
         base_latency = 10 + distance_from_center * 0.5
+        
+        # 根据用户行为调整网络指标
+        if behavior_features:
+            # VR/AR游戏需要极低延迟
+            if behavior_features.get('vr_ar_gaming', 0) > 0.5:
+                base_latency *= 0.1  # 极低延迟需求
+                signal_strength *= 1.2  # 更强信号需求
+            
+            # FPS游戏需要低延迟
+            elif behavior_features.get('fps_gaming', 0) > 0.5:
+                base_latency *= 0.3
+                signal_strength *= 1.1
+            
+            # 直播流需要高带宽和低延迟
+            elif behavior_features.get('live_streaming', 0) > 0.5:
+                base_latency *= 0.5
+                signal_strength *= 1.3
+            
+            # 视频流需要高带宽
+            elif behavior_features.get('video_streaming', 0) > 0.5:
+                signal_strength *= 1.2
+            
+            # IoT设备对网络要求较低
+            elif behavior_features.get('iot_sensor', 0) > 0.5:
+                base_latency *= 2.0  # 可以容忍较高延迟
+                signal_strength *= 0.8
+        
+        # 根据切片类型调整延迟
         if profile.preferred_slice == 'URLLC':
             latency = base_latency * 0.1 + np.random.exponential(2)
         elif profile.preferred_slice == 'eMBB':
@@ -276,6 +415,25 @@ class UserDataGenerator:
         
         # 吞吐量
         base_throughput = signal_strength * 100  # Mbps
+        
+        # 根据行为调整吞吐量需求
+        if behavior_features:
+            throughput_multiplier = 1.0
+            
+            if behavior_features.get('live_streaming', 0) > 0.5:
+                throughput_multiplier *= 3.0  # 直播需要高带宽
+            elif behavior_features.get('vr_ar_gaming', 0) > 0.5:
+                throughput_multiplier *= 2.5  # VR/AR需要高带宽
+            elif behavior_features.get('video_streaming', 0) > 0.5:
+                throughput_multiplier *= 2.0  # 视频流需要中高带宽
+            elif behavior_features.get('file_download', 0) > 0.5:
+                throughput_multiplier *= 2.5  # 文件下载需要高带宽
+            elif behavior_features.get('iot_sensor', 0) > 0.5:
+                throughput_multiplier *= 0.1  # IoT设备带宽需求低
+            
+            base_throughput *= throughput_multiplier
+        
+        # 根据切片类型调整吞吐量
         if profile.preferred_slice == 'eMBB':
             throughput = base_throughput * np.random.uniform(0.8, 1.2)
         elif profile.preferred_slice == 'URLLC':
@@ -283,12 +441,24 @@ class UserDataGenerator:
         else:  # mMTC
             throughput = base_throughput * 0.1 * np.random.uniform(0.5, 1.5)
         
+        # 根据行为调整丢包率和抖动
+        packet_loss = np.random.exponential(0.01)
+        jitter = np.random.exponential(5.0)
+        
+        if behavior_features:
+            if behavior_features.get('vr_ar_gaming', 0) > 0.5 or behavior_features.get('fps_gaming', 0) > 0.5:
+                packet_loss *= 0.1  # 游戏对丢包非常敏感
+                jitter *= 0.1       # 游戏需要低抖动
+            elif behavior_features.get('live_streaming', 0) > 0.5:
+                packet_loss *= 0.3  # 直播对丢包敏感
+                jitter *= 0.5       # 直播需要稳定的网络
+        
         return {
-            'signal_strength': signal_strength,
+            'signal_strength': np.clip(signal_strength, 0.1, 1.0),
             'latency': max(1.0, latency),
             'throughput': max(0.1, throughput),
-            'packet_loss': np.random.exponential(0.01),
-            'jitter': np.random.exponential(5.0)
+            'packet_loss': max(0.0, packet_loss),
+            'jitter': max(0.0, jitter)
         }
     
     def _get_location_type(self, timestamp: datetime) -> str:
