@@ -5,7 +5,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
 import random
 from dataclasses import dataclass
@@ -41,16 +41,102 @@ class UserDataGenerator:
         # 应用类型和使用模式
         self.app_types = ['social', 'video', 'game', 'work', 'navigation']
         
-        # 新增用户行为类型
+        # 新增扩展的用户行为类型
         self.behavior_types = {
-            'vr_ar_gaming': {'bandwidth_req': 'high', 'latency_req': 'ultra_low', 'slice_preference': 'URLLC'},
-            'fps_gaming': {'bandwidth_req': 'medium', 'latency_req': 'ultra_low', 'slice_preference': 'URLLC'},
-            'video_streaming': {'bandwidth_req': 'high', 'latency_req': 'low', 'slice_preference': 'eMBB'},
-            'live_streaming': {'bandwidth_req': 'very_high', 'latency_req': 'low', 'slice_preference': 'eMBB'},
-            'video_calling': {'bandwidth_req': 'medium', 'latency_req': 'low', 'slice_preference': 'eMBB'},
-            'file_download': {'bandwidth_req': 'very_high', 'latency_req': 'medium', 'slice_preference': 'eMBB'},
-            'iot_sensor': {'bandwidth_req': 'very_low', 'latency_req': 'medium', 'slice_preference': 'mMTC'},
-            'web_browsing': {'bandwidth_req': 'low', 'latency_req': 'medium', 'slice_preference': 'eMBB'}
+            # 游戏类行为
+            'vr_ar_gaming': {
+                'bandwidth_req': 'ultra_high', 
+                'latency_req': 'ultra_low', 
+                'slice_preference': 'URLLC',
+                'data_intensive': True,
+                'realtime_critical': True
+            },
+            'fps_gaming': {
+                'bandwidth_req': 'medium_high', 
+                'latency_req': 'ultra_low', 
+                'slice_preference': 'URLLC',
+                'data_intensive': False,
+                'realtime_critical': True
+            },
+            'cloud_gaming': {
+                'bandwidth_req': 'high', 
+                'latency_req': 'ultra_low', 
+                'slice_preference': 'URLLC',
+                'data_intensive': True,
+                'realtime_critical': True
+            },
+            'online_gaming': {
+                'bandwidth_req': 'medium', 
+                'latency_req': 'low', 
+                'slice_preference': 'URLLC',
+                'data_intensive': False,
+                'realtime_critical': True
+            },
+            
+            # 流媒体类行为
+            'video_streaming': {
+                'bandwidth_req': 'high', 
+                'latency_req': 'low', 
+                'slice_preference': 'eMBB',
+                'data_intensive': True,
+                'realtime_critical': False
+            },
+            'live_streaming': {
+                'bandwidth_req': 'very_high', 
+                'latency_req': 'low', 
+                'slice_preference': 'eMBB',
+                'data_intensive': True,
+                'realtime_critical': True
+            },
+            'video_calling': {
+                'bandwidth_req': 'medium', 
+                'latency_req': 'low', 
+                'slice_preference': 'eMBB',
+                'data_intensive': False,
+                'realtime_critical': True
+            },
+            
+            # 其他应用行为
+            'file_download': {
+                'bandwidth_req': 'very_high', 
+                'latency_req': 'medium', 
+                'slice_preference': 'eMBB',
+                'data_intensive': True,
+                'realtime_critical': False
+            },
+            'iot_sensor': {
+                'bandwidth_req': 'very_low', 
+                'latency_req': 'medium', 
+                'slice_preference': 'mMTC',
+                'data_intensive': False,
+                'realtime_critical': False
+            },
+            'web_browsing': {
+                'bandwidth_req': 'low', 
+                'latency_req': 'medium', 
+                'slice_preference': 'eMBB',
+                'data_intensive': False,
+                'realtime_critical': False
+            }
+        }
+        
+        # 带宽需求映射 (Mbps)
+        self.bandwidth_requirements = {
+            'very_low': (0.1, 1.0),
+            'low': (1.0, 10.0),
+            'medium': (10.0, 50.0),
+            'medium_high': (30.0, 100.0),
+            'high': (50.0, 200.0),
+            'very_high': (100.0, 500.0),
+            'ultra_high': (200.0, 1000.0)
+        }
+        
+        # 延迟需求映射 (ms)
+        self.latency_requirements = {
+            'ultra_low': (1, 5),
+            'low': (5, 20),
+            'medium': (20, 100),
+            'high': (100, 500)
         }
         
     def generate_user_profiles(self, num_users: int) -> List[UserProfile]:
@@ -302,11 +388,14 @@ class UserDataGenerator:
                 elif 12 <= hour <= 14:  # 午休时间
                     actual_usage *= 1.5
             
-            elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
-                if 18 <= hour <= 24 or 0 <= hour <= 2:  # 晚上和深夜游戏时间
-                    actual_usage *= 2.0
+            # 游戏类行为时间相关性
+            elif behavior_name in ['vr_ar_gaming', 'fps_gaming', 'cloud_gaming', 'online_gaming']:
+                if 18 <= hour <= 24 or 0 <= hour <= 2:  # 晚上和深夜游戏高峰期
+                    actual_usage *= 2.5
+                elif 12 <= hour <= 14:  # 午休时间
+                    actual_usage *= 1.3
                 elif 9 <= hour <= 17:  # 工作时间减少
-                    actual_usage *= 0.3
+                    actual_usage *= 0.2 if profile.user_type == 'business' else 0.5
             
             elif behavior_name == 'video_calling':
                 if 9 <= hour <= 11 or 14 <= hour <= 16:  # 会议时间
@@ -332,8 +421,8 @@ class UserDataGenerator:
         if profile.user_type == 'business':
             if behavior_name in ['video_calling', 'file_download', 'web_browsing']:
                 base_prob = 0.7
-            elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
-                base_prob = 0.1
+            elif behavior_name in ['vr_ar_gaming', 'fps_gaming', 'cloud_gaming', 'online_gaming']:
+                base_prob = 0.1  # 商务用户游戏使用率较低
             elif behavior_name in ['video_streaming', 'live_streaming']:
                 base_prob = 0.3
             else:
@@ -343,7 +432,9 @@ class UserDataGenerator:
             if behavior_name in ['video_streaming', 'live_streaming']:
                 base_prob = 0.8
             elif behavior_name in ['vr_ar_gaming', 'fps_gaming']:
-                base_prob = 0.4
+                base_prob = 0.5  # 个人用户VR/AR和FPS游戏使用率较高
+            elif behavior_name in ['cloud_gaming', 'online_gaming']:
+                base_prob = 0.6  # 个人用户对云游戏和网络游戏使用率高
             elif behavior_name in ['video_calling', 'web_browsing']:
                 base_prob = 0.6
             elif behavior_name == 'file_download':
@@ -381,20 +472,30 @@ class UserDataGenerator:
         
         # 根据用户行为调整网络指标
         if behavior_features:
-            # VR/AR游戏需要极低延迟
+            # VR/AR游戏需要极低延迟和高带宽
             if behavior_features.get('vr_ar_gaming', 0) > 0.5:
-                base_latency *= 0.1  # 极低延迟需求
-                signal_strength *= 1.2  # 更强信号需求
+                base_latency *= 0.05  # 极低延迟需求 (<1ms)
+                signal_strength *= 1.3  # 更强信号需求
             
             # FPS游戏需要低延迟
             elif behavior_features.get('fps_gaming', 0) > 0.5:
+                base_latency *= 0.1  # 低延迟需求 (<5ms)
+                signal_strength *= 1.2
+            
+            # 云游戏需要低延迟和高带宽
+            elif behavior_features.get('cloud_gaming', 0) > 0.5:
+                base_latency *= 0.15  # 云游戏对延迟敏感
+                signal_strength *= 1.25
+            
+            # 网络游戏需要稳定的网络
+            elif behavior_features.get('online_gaming', 0) > 0.5:
                 base_latency *= 0.3
                 signal_strength *= 1.1
             
             # 直播流需要高带宽和低延迟
             elif behavior_features.get('live_streaming', 0) > 0.5:
-                base_latency *= 0.5
-                signal_strength *= 1.3
+                base_latency *= 0.4
+                signal_strength *= 1.4  # 直播对带宽需求最高
             
             # 视频流需要高带宽
             elif behavior_features.get('video_streaming', 0) > 0.5:
@@ -402,8 +503,8 @@ class UserDataGenerator:
             
             # IoT设备对网络要求较低
             elif behavior_features.get('iot_sensor', 0) > 0.5:
-                base_latency *= 2.0  # 可以容忍较高延迟
-                signal_strength *= 0.8
+                base_latency *= 3.0  # 可以容忍较高延迟
+                signal_strength *= 0.7
         
         # 根据切片类型调整延迟
         if profile.preferred_slice == 'URLLC':
@@ -421,15 +522,25 @@ class UserDataGenerator:
             throughput_multiplier = 1.0
             
             if behavior_features.get('live_streaming', 0) > 0.5:
-                throughput_multiplier *= 3.0  # 直播需要高带宽
+                throughput_multiplier *= 5.0  # 直播需要最高带宽
             elif behavior_features.get('vr_ar_gaming', 0) > 0.5:
-                throughput_multiplier *= 2.5  # VR/AR需要高带宽
-            elif behavior_features.get('video_streaming', 0) > 0.5:
-                throughput_multiplier *= 2.0  # 视频流需要中高带宽
+                throughput_multiplier *= 4.0  # VR/AR需要极高带宽
+            elif behavior_features.get('cloud_gaming', 0) > 0.5:
+                throughput_multiplier *= 3.5  # 云游戏需要高带宽
             elif behavior_features.get('file_download', 0) > 0.5:
-                throughput_multiplier *= 2.5  # 文件下载需要高带宽
+                throughput_multiplier *= 3.0  # 文件下载需要高带宽
+            elif behavior_features.get('video_streaming', 0) > 0.5:
+                throughput_multiplier *= 2.5  # 视频流需要高带宽
+            elif behavior_features.get('fps_gaming', 0) > 0.5:
+                throughput_multiplier *= 1.8  # FPS游戏中等带宽需求
+            elif behavior_features.get('video_calling', 0) > 0.5:
+                throughput_multiplier *= 1.5  # 视频通话中等带宽
+            elif behavior_features.get('online_gaming', 0) > 0.5:
+                throughput_multiplier *= 1.2  # 网络游戏较低带宽需求
+            elif behavior_features.get('web_browsing', 0) > 0.5:
+                throughput_multiplier *= 0.3  # 网页浏览低带宽需求
             elif behavior_features.get('iot_sensor', 0) > 0.5:
-                throughput_multiplier *= 0.1  # IoT设备带宽需求低
+                throughput_multiplier *= 0.05  # IoT设备带宽需求极低
             
             base_throughput *= throughput_multiplier
         
@@ -446,12 +557,21 @@ class UserDataGenerator:
         jitter = np.random.exponential(5.0)
         
         if behavior_features:
-            if behavior_features.get('vr_ar_gaming', 0) > 0.5 or behavior_features.get('fps_gaming', 0) > 0.5:
-                packet_loss *= 0.1  # 游戏对丢包非常敏感
-                jitter *= 0.1       # 游戏需要低抖动
+            # 游戏类应用对丢包和抖动非常敏感
+            if (behavior_features.get('vr_ar_gaming', 0) > 0.5 or 
+                behavior_features.get('fps_gaming', 0) > 0.5 or
+                behavior_features.get('cloud_gaming', 0) > 0.5):
+                packet_loss *= 0.05  # 游戏对丢包极度敏感
+                jitter *= 0.05       # 游戏需要极低抖动
+            elif behavior_features.get('online_gaming', 0) > 0.5:
+                packet_loss *= 0.1   # 网络游戏对丢包敏感
+                jitter *= 0.1        # 需要低抖动
             elif behavior_features.get('live_streaming', 0) > 0.5:
-                packet_loss *= 0.3  # 直播对丢包敏感
-                jitter *= 0.5       # 直播需要稳定的网络
+                packet_loss *= 0.2   # 直播对丢包较敏感
+                jitter *= 0.3        # 直播需要相对稳定的网络
+            elif behavior_features.get('video_calling', 0) > 0.5:
+                packet_loss *= 0.3   # 视频通话对丢包敏感
+                jitter *= 0.4        # 视频通话需要稳定网络
         
         return {
             'signal_strength': np.clip(signal_strength, 0.1, 1.0),
